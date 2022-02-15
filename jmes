@@ -1,0 +1,21 @@
+#!/usr/bin/env python
+
+import jmespath
+import sys
+import json
+from pprint import pprint
+
+# todo: -h (help), -j, -y (json or yaml output)
+
+def usage ():
+    print ("""
+usage: jmes JMES-Expression /path/to/file
+""")
+
+if len(sys.argv) != 3:
+    usage ()
+    sys.exit(1)
+
+with open (sys.argv[2]) as f:
+    data = json.load(f)
+    pprint ( jmespath.search (sys.argv[1], data) )
