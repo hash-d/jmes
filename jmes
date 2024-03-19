@@ -4,6 +4,7 @@ import jmespath
 import sys
 import json
 import yaml
+import tomlkit
 import getopt
 import tempfile
 import subprocess
@@ -16,6 +17,8 @@ usage: jmes [-yYjJh] [ JMES-Expression [ /path/to/file ] ]
 
     -j  consider input as JSON
     -J  emit output as JSON
+    -t  consider input as TOML  (under construction)
+    -T  emit output as TOML     (under construction)
     -y  consider input as YAML
     -Y  emit output as YAML
 
@@ -45,18 +48,22 @@ output.
 """, file=sys.stderr)
 
 
-opts, args = getopt.getopt(sys.argv[1:], "hyjYJ")
-
 # input and output formats (json or yaml)
 in_f = ""
 out_f = ""
 filename = ""
+
+opts, args = getopt.getopt(sys.argv[1:], "hyjYJtT")
 
 for o, a in opts:
     if o == "-y":
         in_f = "yaml"
     elif o == "-Y":
         out_f = "yaml"
+    elif o == "-t":
+        in_f = "toml"
+    elif o == "-T":
+        out_f = "toml"
     elif o == "-j":
         in_f = "json"
     elif o == "-J":
@@ -99,6 +106,9 @@ if in_f == "":
     elif filename.lower().endswith(".json"):
         in_f = "json"
         how = "from the file extension"
+    elif filename.lower().endswith(".toml"):
+        in_f = "toml"
+        how = "from the file extension"
     elif text[0] in ["{", "["]:
         in_f = "json"
         how = "from the first character"
@@ -115,6 +125,8 @@ if in_f == "json":
     data = json.loads(text)
 elif in_f == "yaml":
     data = yaml.safe_load(text)
+elif in_f == "toml":
+    data = tomlkit.parse(text)
 else:
     raise Exception("This should not have happened")
 
@@ -126,6 +138,8 @@ if out_f == "json":
     out_content = json.dumps(result, indent=2)
 elif out_f == "yaml":
     out_content = yaml.dump(result)
+elif out_f == "toml":
+    out_content = tomlkit.dumps(result)
 else:
     raise Exception("This should not have happened")
 
@@ -136,7 +150,7 @@ if sys.stdout.isatty():
         out.flush()
         if out_f == "json":
             p = subprocess.Popen(f"jq -C . {out.name} | less -r", shell=True)
-        elif out_f == "yaml":
+        else:
             p = subprocess.Popen(f"less {out.name}", shell=True)
         p.wait()
 else:
