@@ -109,6 +109,8 @@ if in_f == "":
     elif filename.lower().endswith(".toml"):
         in_f = "toml"
         how = "from the file extension"
+    elif len(text) == 0:
+        raise Exception ("Empty text; nothing to do here")
     elif text[0] in ["{", "["]:
         in_f = "json"
         how = "from the first character"
