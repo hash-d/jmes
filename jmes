@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import jmespath
+import io
 import sys
 import json
 import yaml
@@ -17,12 +18,16 @@ usage: jmes [-yYjJh] [ JMES-Expression [ /path/to/file ] ]
 
     -j  consider input as JSON
     -J  emit output as JSON
+    -r  do not run `| less` on the output
+    -R  raw output
     -t  consider input as TOML  (under construction)
     -T  emit output as TOML     (under construction)
     -y  consider input as YAML
     -Y  emit output as YAML
 
     -h  this help screen
+
+    --raw-format=fmt  uses fmt to format the raw output
 
 If no -j or -y given, the script will try to guess the file's format, first by
 its filename, then by its contents (first byte is checked for being [ or { and
@@ -48,112 +53,162 @@ output.
 """, file=sys.stderr)
 
 
-# input and output formats (json or yaml)
-in_f = ""
-out_f = ""
-filename = ""
+def raw_dump(result, raw_format=""):
+    """
+    Returns a 'raw' string representation of the result:
 
-opts, args = getopt.getopt(sys.argv[1:], "hyjYJtT")
+    - If it is a string, return it as is
+    - If iterable, each item in a line
+    - Otherwise, return it as-is
 
-for o, a in opts:
-    if o == "-y":
-        in_f = "yaml"
-    elif o == "-Y":
-        out_f = "yaml"
-    elif o == "-t":
-        in_f = "toml"
-    elif o == "-T":
-        out_f = "toml"
-    elif o == "-j":
-        in_f = "json"
-    elif o == "-J":
-        out_f = "json"
-    elif o == "-h":
-        usage()
-        sys.exit(0)
+    In all options, a raw_format can be provided, which will be used to
+    format the whole result or each of its items (for iterables)
+    """
+    ret = io.StringIO()
+    if type(result) == str:
+        ret.write(f"{result:{raw_format}}\n")
     else:
-        print(f"jmes: unknown option {o}", file=sys.stderr)
+        try:
+            for item in result:
+                ret.write(f"{item:{raw_format}}\n")
+        except TypeError as e:
+            ret.write(f"{result:{raw_format}}\n")
+        except Exception as e:
+            print(e)
+            raise e
+
+    return ret.getvalue()
+
+
+if __name__ == "__main__":
+
+    # input and output formats (json or yaml)
+    in_f = ""
+    out_f = ""
+    filename = ""
+    do_less = True
+    raw_format = ""
+
+    opts, args = getopt.getopt(
+        sys.argv[1:],
+        "hyjYJtTrR",
+        [
+            "raw-format=",
+        ],
+    )
+
+    for o, a in opts:
+        if o == "-y":
+            in_f = "yaml"
+        elif o == "-Y":
+            out_f = "yaml"
+        elif o == "-r":
+            do_less = False
+        elif o == "-R":
+            out_f = "raw"
+        elif o == "-t":
+            in_f = "toml"
+        elif o == "-T":
+            out_f = "toml"
+        elif o == "-j":
+            in_f = "json"
+        elif o == "-J":
+            out_f = "json"
+        elif o == "--raw-format":
+            raw_format = a
+            out_f = "raw"
+        elif o == "-h":
+            usage()
+            sys.exit(0)
+        else:
+            print(f"jmes: unknown option {o}", file=sys.stderr)
+            usage()
+            sys.exit(1)
+
+    if len(args) > 2:
         usage()
         sys.exit(1)
 
-if len(args) > 2:
-    usage()
-    sys.exit(1)
+    try:
+        expression = args[0]
+    except IndexError:
+        expression = "@"
 
-try:
-    expression = args[0]
-except IndexError:
-    expression = "@"
-
-# Get thetext
-try:
-    filename = args[1]
-    if filename == "-":
-        text = sys.stdin.read()
-    else:
-        with open(filename) as f:
-            text = f.read()
-except IndexError:
-    text = sys.stdin.read()
-
-# Guess the input format, if not given
-# TODO: if not provided, what about trying one, then the other, like Ansible does?
-if in_f == "":
-    print(f"You didn't tell me what kind of file it is; I'll try to guess", file=sys.stderr)
-    if filename.lower().endswith(".yaml") or filename.lower().endswith("yml"):
-        in_f = "yaml"
-        how = "from the file extension"
-    elif filename.lower().endswith(".json"):
-        in_f = "json"
-        how = "from the file extension"
-    elif filename.lower().endswith(".toml"):
-        in_f = "toml"
-        how = "from the file extension"
-    elif len(text) == 0:
-        raise Exception ("Empty text; nothing to do here")
-    elif text[0] in ["{", "["]:
-        in_f = "json"
-        how = "from the first character"
-    else:
-        in_f = "yaml"
-        how = "as a fallback"
-    print(f"I guessed {in_f} {how}", file=sys.stderr)
-
-# If not specifically requested, we output in the same format as the input
-if out_f == "":
-    out_f = in_f
-
-if in_f == "json":
-    data = json.loads(text)
-elif in_f == "yaml":
-    data = yaml.safe_load(text)
-elif in_f == "toml":
-    data = tomlkit.parse(text)
-else:
-    raise Exception("This should not have happened")
-
-result = jmespath.search(expression, data)
-
-out_file = sys.stdout
-
-if out_f == "json":
-    out_content = json.dumps(result, indent=2)
-elif out_f == "yaml":
-    out_content = yaml.dump(result)
-elif out_f == "toml":
-    out_content = tomlkit.dumps(result)
-else:
-    raise Exception("This should not have happened")
-
-if sys.stdout.isatty():
-    with tempfile.NamedTemporaryFile("w") as out:
-        # print(out_content, file=out)
-        out.write(out_content)
-        out.flush()
-        if out_f == "json":
-            p = subprocess.Popen(f"jq -C . {out.name} | less -r", shell=True)
+    # Get thetext
+    try:
+        filename = args[1]
+        if filename == "-":
+            text = sys.stdin.read()
         else:
-            p = subprocess.Popen(f"less {out.name}", shell=True)
-        p.wait()
-else:
-    print(out_content)
+            with open(filename) as f:
+                text = f.read()
+    except IndexError:
+        text = sys.stdin.read()
+
+    # Guess the input format, if not given
+    # TODO: if not provided, what about trying one, then the other, like Ansible does?
+    if in_f == "":
+        print(f"You didn't tell me what kind of file it is; I'll try to guess", file=sys.stderr)
+        if filename.lower().endswith(".yaml") or filename.lower().endswith("yml"):
+            in_f = "yaml"
+            how = "from the file extension"
+        elif filename.lower().endswith(".json"):
+            in_f = "json"
+            how = "from the file extension"
+        elif filename.lower().endswith(".toml"):
+            in_f = "toml"
+            how = "from the file extension"
+        elif len(text) == 0:
+            raise Exception("Empty text; nothing to do here")
+        elif text[0] in ["{", "["]:
+            in_f = "json"
+            how = "from the first character"
+        else:
+            in_f = "yaml"
+            how = "as a fallback"
+        print(f"I guessed {in_f} {how}", file=sys.stderr)
+
+    # If not specifically requested, we output in the same format as the input
+    if out_f == "":
+        out_f = in_f
+
+    if in_f == "json":
+        data = json.loads(text)
+    elif in_f == "yaml":
+        data = yaml.safe_load(text)
+    elif in_f == "toml":
+        data = tomlkit.parse(text)
+    else:
+        raise Exception("This should not have happened")
+
+    result = jmespath.search(expression, data)
+
+    out_file = sys.stdout
+
+    if out_f == "json":
+        out_content = json.dumps(result, indent=2)
+    elif out_f == "yaml":
+        out_content = yaml.dump(result)
+    elif out_f == "toml":
+        out_content = tomlkit.dumps(result)
+    elif out_f == "raw":
+        out_content = raw_dump(result, raw_format)
+    else:
+        raise Exception("This should not have happened")
+
+    if sys.stdout.isatty():
+        with tempfile.NamedTemporaryFile("w") as out:
+            # print(out_content, file=out)
+            out.write(out_content)
+            out.flush()
+            if out_f == "json" and do_less:
+                p = subprocess.Popen(
+                    f"jq -C . {out.name} | less -r", shell=True)
+            else:
+                out_cmd = "cat"
+                if do_less:
+                    out_cmd = "less"
+                p = subprocess.Popen(f"{out_cmd} {out.name}", shell=True)
+            p.wait()
+    else:
+        print(out_content)
