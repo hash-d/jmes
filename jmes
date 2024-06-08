@@ -10,6 +10,7 @@ import getopt
 import tempfile
 import subprocess
 from pprint import pprint
+from tabulate import tabulate
 
 
 def usage():
@@ -28,6 +29,7 @@ usage: jmes [-yYjJh] [ JMES-Expression [ /path/to/file ] ]
     -h  this help screen
 
     --raw-format=fmt  uses fmt to format the raw output
+    --table
 
 If no -j or -y given, the script will try to guess the file's format, first by
 its filename, then by its contents (first byte is checked for being [ or { and
@@ -94,6 +96,7 @@ if __name__ == "__main__":
         "hyjYJtTrR",
         [
             "raw-format=",
+            "table",
         ],
     )
 
@@ -114,6 +117,8 @@ if __name__ == "__main__":
             in_f = "json"
         elif o == "-J":
             out_f = "json"
+        elif o == "--table":
+            out_f = "table"
         elif o == "--raw-format":
             raw_format = a
             out_f = "raw"
@@ -193,6 +198,8 @@ if __name__ == "__main__":
         out_content = tomlkit.dumps(result)
     elif out_f == "raw":
         out_content = raw_dump(result, raw_format)
+    elif out_f == "table":
+        out_content = tabulate(result, headers="keys", showindex=True)
     else:
         raise Exception("This should not have happened")
 
