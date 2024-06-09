@@ -190,7 +190,7 @@ if __name__ == "__main__":
     if in_f == "json":
         data = json.loads(text)
     elif in_f == "yaml":
-        data = yaml.safe_load(text)
+        data = yaml.load(text, Loader=yaml.BaseLoader)
     elif in_f == "toml":
         data = tomlkit.parse(text)
     elif in_f == "csv":
