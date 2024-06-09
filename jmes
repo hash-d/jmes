@@ -2,6 +2,7 @@
 
 import jmespath
 import io
+import csv
 import sys
 import json
 import yaml
@@ -17,6 +18,8 @@ def usage():
     print("""
 usage: jmes [-yYjJh] [ JMES-Expression [ /path/to/file ] ]
 
+    -c  consider input as CSV
+    -C  emit output as CSV (the result must be a list of dicts)
     -j  consider input as JSON
     -J  emit output as JSON
     -r  do not run `| less` on the output
@@ -29,7 +32,7 @@ usage: jmes [-yYjJh] [ JMES-Expression [ /path/to/file ] ]
     -h  this help screen
 
     --raw-format=fmt  uses fmt to format the raw output
-    --table
+    --table           emit output as a table
 
 If no -j or -y given, the script will try to guess the file's format, first by
 its filename, then by its contents (first byte is checked for being [ or { and
@@ -42,7 +45,7 @@ less.
 
 To transform a file from one format to the other:
 
-cat file_path | jmes -jY 
+cat file_path | jmes -jY
 cat file_path | jmes -yJ
 
 or
@@ -93,7 +96,7 @@ if __name__ == "__main__":
 
     opts, args = getopt.getopt(
         sys.argv[1:],
-        "hyjYJtTrR",
+        "cChyjYJtTrR",
         [
             "raw-format=",
             "table",
@@ -109,6 +112,10 @@ if __name__ == "__main__":
             do_less = False
         elif o == "-R":
             out_f = "raw"
+        elif o == "-c":
+            in_f = "csv"
+        elif o == "-C":
+            out_f = "csv"
         elif o == "-t":
             in_f = "toml"
         elif o == "-T":
@@ -163,6 +170,9 @@ if __name__ == "__main__":
         elif filename.lower().endswith(".toml"):
             in_f = "toml"
             how = "from the file extension"
+        elif filename.lower().endswith(".csv"):
+            in_f = "csv"
+            how = "from the file extension"
         elif len(text) == 0:
             raise Exception("Empty text; nothing to do here")
         elif text[0] in ["{", "["]:
@@ -183,6 +193,19 @@ if __name__ == "__main__":
         data = yaml.safe_load(text)
     elif in_f == "toml":
         data = tomlkit.parse(text)
+    elif in_f == "csv":
+        with io.StringIO(text) as ios:
+            dialect = 'excel'
+            try:
+                dialect = csv.Sniffer().sniff(ios.read(1024))
+            except:
+                # If we cannot determine the dialect, let's go with the default
+                pass
+            ios.seek(0)
+            reader = csv.DictReader(ios, dialect=dialect)
+            data = []
+            for row in reader:
+                data.append(row)
     else:
         raise Exception("This should not have happened")
 
@@ -200,6 +223,21 @@ if __name__ == "__main__":
         out_content = raw_dump(result, raw_format)
     elif out_f == "table":
         out_content = tabulate(result, headers="keys", showindex=True)
+    elif out_f == "csv":
+        with io.StringIO() as ios:
+            fields = set()
+            try:
+                for item in result:
+                    fields = fields.union(item.keys())
+            except AttributeError as e:
+                raise Exception(
+                    "Result for CSV output must be list of dictionaries")
+            writer = csv.DictWriter(ios, fieldnames=fields)
+            writer.writeheader()
+            for item in result:
+                writer.writerow(item)
+
+            out_content = ios.getvalue()
     else:
         raise Exception("This should not have happened")
 
@@ -219,3 +257,4 @@ if __name__ == "__main__":
             p.wait()
     else:
         print(out_content)
+    print("", file=sys.stderr)
