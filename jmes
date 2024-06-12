@@ -249,6 +249,9 @@ if __name__ == "__main__":
             if out_f == "json" and do_less:
                 p = subprocess.Popen(
                     f"jq -C . {out.name} | less -r", shell=True)
+            elif out_f == "yaml" and do_less:
+                p = subprocess.Popen(
+                    f"yq -C . {out.name} | less -r", shell=True)
             else:
                 out_cmd = "cat"
                 if do_less:
