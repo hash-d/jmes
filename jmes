@@ -5,6 +5,7 @@ import io
 import csv
 import sys
 import json
+import ldif
 import yaml
 import tomlkit
 import getopt
@@ -22,6 +23,7 @@ usage: jmes [-yYjJh] [ JMES-Expression [ /path/to/file ] ]
     -C  emit output as CSV (the result must be a list of dicts)
     -j  consider input as JSON
     -J  emit output as JSON
+    -l  consider input as LDIF (LDAP)
     -r  do not run `| less` on the output
     -R  raw output
     -t  consider input as TOML  (under construction)
@@ -56,6 +58,44 @@ jmes -yJ "@" file_path
 Here "@" stands for JMESPath "current-node", and just passes its input to the
 output.
 """, file=sys.stderr)
+
+def byte_to_str (val):
+    """
+    Recursivelly transforms any values of type bytes into string, via .decode()
+
+    Any and all errors are silently ignored
+    """
+
+    # Is it a dictionary?
+    try:
+        for k, v in val.items():
+            if type(v) == bytes:
+                try:
+                    val[k]=v.decode()
+                except Exception:
+                    pass
+            else:
+                byte_to_str(v)
+        return val
+    except Exception:
+        pass
+
+    # Is it a list?
+    try:
+        for i, v in enumerate(val):
+            if type(v) == bytes:
+                try:
+                    val[i]=v.decode()
+                except Exception:
+                    pass
+            else:
+                byte_to_str(v)
+        return val
+    except Exception:
+        pass
+
+    # Is it anything else
+    return val
 
 
 def raw_dump(result, raw_format=""):
@@ -96,7 +136,7 @@ if __name__ == "__main__":
 
     opts, args = getopt.getopt(
         sys.argv[1:],
-        "cChyjYJtTrR",
+        "cChjJltTrRyY",
         [
             "raw-format=",
             "table",
@@ -116,6 +156,8 @@ if __name__ == "__main__":
             in_f = "csv"
         elif o == "-C":
             out_f = "csv"
+        elif o == "-l":
+            in_f = "ldif"
         elif o == "-t":
             in_f = "toml"
         elif o == "-T":
@@ -193,6 +235,11 @@ if __name__ == "__main__":
         data = yaml.load(text, Loader=yaml.BaseLoader)
     elif in_f == "toml":
         data = tomlkit.parse(text)
+    elif in_f == "ldif":
+        with io.StringIO(text) as reader:
+            parser = ldif.LDIFRecordList(reader)
+            parser.parse()
+            data = byte_to_str(parser.all_records)
     elif in_f == "csv":
         with io.StringIO(text) as ios:
             dialect = 'excel'
@@ -223,6 +270,20 @@ if __name__ == "__main__":
         out_content = raw_dump(result, raw_format)
     elif out_f == "table":
         out_content = tabulate(result, headers="keys", showindex=True)
+    # TODO ldif output requires data to be bytes, reverting byte_to_str
+#    elif out_f == "ldif":
+#        with io.StringIO() as out:
+#            writer =  ldif.LDIFWriter(out)
+#            try:
+#                for item in result:
+#                    writer.unparse(item[0], item[1])
+#                out_content = out.getvalue()
+#            except IndexError as e:
+#                raise Exception (
+#                    "Result for LDIF output must be list of 2-tuples, where"
+#                    "the first value is dn, second a dictionary"
+#                    f"({e})"
+#                )
     elif out_f == "csv":
         with io.StringIO() as ios:
             fields = set()
